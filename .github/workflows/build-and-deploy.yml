@@ -23,21 +23,41 @@ jobs:
       # -----------------------------------------------------------------
       # STEP 1: CHECKOUT REPOSITORY
       # -----------------------------------------------------------------
+      # Fetches the latest version of your repository code.
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------
-      # STEP 2: SETUP TEX LIVE (IMPROVED METHOD)
+      # STEP 2: CACHE and INSTALL TEX LIVE
       # -----------------------------------------------------------------
-      # This action is the recommended way to install TeX Live in GitHub Actions.
-      # It automatically handles caching for faster subsequent runs and correctly
-      # adds the TeX Live binaries to the system's PATH.
-      - name: Set up TeX Live
-        uses: texlive-actions/setup-texlive@v1
+      # Caching TeX Live is crucial as a full installation can take 30-60 minutes.
+      # This step saves the installation to a cache and restores it on subsequent runs,
+      # reducing the setup time to just a minute or two.
+      - name: Cache TeX Live installation
+        id: cache-texlive
+        uses: actions/cache@v4
         with:
-          # 'full' installs a comprehensive TeX Live distribution.
-          # The action's caching is enabled by default.
-          scheme: full
+          path: /tmp/texlive
+          # The key is versioned to allow for manual cache invalidation if needed.
+          key: ${{ runner.os }}-texlive-full-v1
+
+      - name: Install TeX Live (if not cached)
+        # This step only runs if the cache was not found.
+        if: steps.cache-texlive.outputs.cache-hit != 'true'
+        run: |
+          echo "No cache found, starting full TeX Live installation..."
+          sudo apt-get update
+          # Using --no-install-recommends to speed it up slightly.
+          # We use a non-interactive frontend to prevent prompts.
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends texlive-full
+          # Move the installed files to the cache directory.
+          sudo mv /usr/share/texlive /tmp/texlive
+
+      - name: Add TeX Live to PATH
+        run: |
+          # Add the cached TeX Live binaries to the runner's PATH for this job.
+          export PATH="/tmp/texlive/bin/x86_64-linux:$PATH"
+          echo "/tmp/texlive/bin/x86_64-linux" >> $GITHUB_PATH
 
       # -----------------------------------------------------------------
       # STEP 3: CONVERT LATEX PROJECTS AND GENERATE INDEX
@@ -113,3 +133,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           # The directory to publish. This contains our final website.
           publish_dir: ./_site
+
