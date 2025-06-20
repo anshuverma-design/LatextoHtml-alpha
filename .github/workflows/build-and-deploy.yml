@@ -33,7 +33,7 @@ jobs:
       # It automatically handles caching for faster subsequent runs and correctly
       # adds the TeX Live binaries to the system's PATH.
       - name: Set up TeX Live
-        uses: texlive-actions/setup-texlive@v1
+        uses: texlive-actions/setup-texlive@v2
         with:
           # 'full' installs a comprehensive TeX Live distribution.
           # The action's caching is enabled by default.
