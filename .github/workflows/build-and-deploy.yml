@@ -1,117 +1,73 @@
-# .github/workflows/build-and-deploy.yml
-# This workflow automates the conversion of LaTeX projects to HTML and deploys them to GitHub Pages.
-
-name: Build LaTeX Projects and Deploy to GitHub Pages
+name: Convert LaTeX to HTML and Generate Index
 
 on:
-  # Run on pushes to the main branch
   push:
-    branches:
-      - main
-  # Allow manual triggering from the Actions tab
-  workflow_dispatch:
+    paths:
+      - '**.tex'
+      - '**/'
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # Needed to commit changes and push to the gh-pages branch
-      pages: write    # Needed to deploy to GitHub Pages
-      id-token: write # Needed for trusted publishing
 
     steps:
-      # -----------------------------------------------------------------
-      # STEP 1: CHECKOUT REPOSITORY
-      # -----------------------------------------------------------------
-      # Fetches the latest version of your repository code.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
-      # -----------------------------------------------------------------
-      # STEP 2: INSTALL TEX LIVE (FRESH INSTALLATION)
-      # -----------------------------------------------------------------
-      # This step performs a fresh installation of TeX Live on every run.
-      # Caching is disabled as requested. This will increase run times.
-      - name: Install TeX Live
+      - name: Restore TeX Live cache
+        id: cache-texlive
+        uses: actions/cache@v3
+        with:
+          path: /usr/share/texlive
+          key: texlive-2025-full
+
+      - name: Install TeX Live manually (2025) if not cached
+        if: steps.cache-texlive.outputs.cache-hit != 'true'
         run: |
-          echo "Starting full TeX Live installation..."
           sudo apt-get update
-          # Using --no-install-recommends to speed it up slightly.
-          # We use a non-interactive frontend to prevent prompts.
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends texlive-full
+          sudo apt-get install -y texlive-full
 
-      # -----------------------------------------------------------------
-      # STEP 3: CONVERT LATEX PROJECTS AND GENERATE INDEX
-      # -----------------------------------------------------------------
-      # This is the core logic. It finds all LaTeX projects, converts them
-      # using make4ht, and generates the HTML for the index page.
-      - name: Convert projects and build index
+      - name: Find and convert LaTeX files to HTML
         run: |
-          echo "Starting conversion process..."
-          
-          # Create the main output directory for the site
-          mkdir -p _site/_converted
-          
-          # Initialize an empty string to hold the HTML for the project cards
-          PROJECT_CARDS_HTML=""
-          
-          # Loop through each top-level directory in the repository
-          for dir in */; do
-            # Clean up trailing slash from directory name
-            dir_name=${dir%/}
-            
-            # Skip workflow and hidden directories
-            if [[ "$dir_name" == ".github" || "$dir_name" == "_site" ]]; then
-              echo "Skipping utility directory: $dir_name"
-              continue
-            fi
-            
-            # Find the first .tex file in the directory (non-recursive)
-            MAIN_TEX=$(find "$dir_name" -maxdepth 1 -type f -name "*.tex" | head -n 1)
-            
-            if [[ -n "$MAIN_TEX" ]]; then
-              PROJECT_NAME=$(basename "$dir_name")
-              echo "✅ Found LaTeX project: $PROJECT_NAME in directory $dir_name"
-              echo "   - Main file: $MAIN_TEX"
-              
-              # Run make4ht to convert the .tex file to a website
-              # -l: Use LuaLaTeX (modern and robust)
-              # -u: UTF-8 encoding
-              # -c: Use our custom build.cfg for TikZ support
-              # -d: Output directory
-              # "mathjax,svg": Use MathJax for equations and output images as SVG
-              make4ht -l -u -c ./build.cfg -d "_site/_converted/${PROJECT_NAME}" "$MAIN_TEX" "mathjax,svg"
-              
-              # Generate the HTML vCard for this project and append it to our list
-              CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">
-                <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>
-                <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>
-              </a>"
-              PROJECT_CARDS_HTML="$PROJECT_CARDS_HTML $CARD"
-              
-            else
-              echo "⚠️ No .tex file found in directory: $dir_name. Skipping."
+          mkdir -p _converted
+          for d in */ ; do
+            texfile=$(find "$d" -maxdepth 1 -name "*.tex" | head -n 1)
+            if [ -n "$texfile" ]; then
+              name=$(basename "$texfile" .tex)
+              mkdir -p "_converted/$d"
+              make4ht -u -f html5 "$texfile" "mathjax"
+              mv "$name.html" "_converted/$d/"
             fi
           done
-          
-          echo "All projects processed. Generating final index.html..."
-          
-          # Create the final index.html from the template
-          # We use a different delimiter for sed to avoid issues with slashes in the HTML
-          sed "s|<!-- PROJECTS_LIST -->|${PROJECT_CARDS_HTML}|g" index.template.html > _site/index.html
-          
-          echo "✅ Site built successfully in the '_site' directory."
 
-      # -----------------------------------------------------------------
-      # STEP 4: DEPLOY TO GITHUB PAGES
-      # -----------------------------------------------------------------
-      # This action takes the contents of the '_site' directory and pushes
-      # them to the 'gh-pages' branch, which triggers the deployment.
+      - name: Generate index.html with vCards
+        run: |
+          echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Project Index</title><style>body{font-family:sans-serif;background:#f9f9f9;padding:20px;} .card{background:#fff;border-radius:10px;padding:20px;margin:10px;box-shadow:0 0 10px rgba(0,0,0,0.1);} .card a{text-decoration:none;font-weight:bold;font-size:18px;color:#333;}</style></head><body><h1>Available Projects</h1>' > index.html
+          REPO="${{ github.repository }}"
+          USER=$(echo "$REPO" | cut -d'/' -f1)
+          REPO_NAME=$(echo "$REPO" | cut -d'/' -f2)
+          for d in _converted/* ; do
+            projname=$(basename "$d")
+            htmlfile=$(find "$d" -name "*.html" | head -n 1)
+            if [ -n "$htmlfile" ]; then
+              relative_path=$(echo "$htmlfile" | sed 's|^\./||')
+              fullurl="https://$USER.github.io/$REPO_NAME/$relative_path"
+              echo "<div class='card'><a href='$fullurl' target='_blank'>$projname</a></div>" >> index.html
+            fi
+          done
+          echo '</body></html>' >> index.html
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+          git add _converted index.html
+          git commit -m 'Auto-convert LaTeX to HTML and update index' || echo "No changes to commit"
+          git push
+
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          # The token is automatically provided by GitHub Actions.
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # The directory to publish. This contains our final website.
-          publish_dir: ./_site
-
+          publish_dir: ./
+          publish_branch: gh-pages
