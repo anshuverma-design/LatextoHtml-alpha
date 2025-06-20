@@ -33,13 +33,13 @@ jobs:
           cd /tmp/install-texlive
           curl -sL http://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz | tar xz --strip-components=1
           ./install-tl -profile /dev/stdin <<EOF
-selected_scheme scheme-full
-TEXDIR /tmp/texlive
-TEXMFCONFIG ~/.texlive-config
-TEXMFVAR ~/.texlive-var
-option_doc 0
-option_src 0
-EOF
+          selected_scheme scheme-full
+          TEXDIR /tmp/texlive
+          TEXMFCONFIG ~/.texlive-config
+          TEXMFVAR ~/.texlive-var
+          option_doc 0
+          option_src 0
+          EOF
 
       - name: Add TeX Live to PATH
         run: |
