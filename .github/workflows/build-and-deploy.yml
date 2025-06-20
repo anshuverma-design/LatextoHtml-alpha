@@ -32,9 +32,8 @@ jobs:
       # This action is the recommended way to install TeX Live in GitHub Actions.
       # It automatically handles caching for faster subsequent runs and correctly
       # adds the TeX Live binaries to the system's PATH.
-      # Using a specific commit hash for stability to avoid tag resolution issues.
       - name: Set up TeX Live
-        uses: texlive-actions/setup-texlive@91abd2d4d2b274534720b223e721b1442171d310 # Pinned to commit hash from v2
+        uses: texlive-actions/setup-texlive@v1
         with:
           # 'full' installs a comprehensive TeX Live distribution.
           # The action's caching is enabled by default.
