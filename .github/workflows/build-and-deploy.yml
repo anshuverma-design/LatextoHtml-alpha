@@ -18,56 +18,107 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Use the maintained TeX Live action with built-in caching
-      - name: Install TeX Live
-        uses: tl-action/texlive-action@v2
+      # -----------------------------------------------------------------
+      # STEP 1: INSTALL TEX LIVE WITH PROPER CACHING
+      # -----------------------------------------------------------------
+      - name: Cache TeX Live installation
+        id: cache-texlive
+        uses: actions/cache@v4
         with:
-          packages: texlive-full tex4ht  # tex4ht contains make4ht
-          cache: true
-          cache-key: texlive-full-v1  # Custom cache key for our setup
+          path: /tmp/texlive
+          key: ${{ runner.os }}-texlive-full-2024-06-21
+          restore-keys: |
+            ${{ runner.os }}-texlive-full-
 
+      - name: Install TeX Live (if not cached)
+        if: steps.cache-texlive.outputs.cache-hit != 'true'
+        run: |
+          echo "Installing TeX Live..."
+          sudo apt-get update
+          sudo apt-get install -y \
+            texlive-full \
+            texlive-latex-extra \
+            texlive-fonts-extra \
+            texlive-luatex \
+            texlive-xetex \
+            tex4ht
+          
+          echo "Caching TeX Live installation..."
+          sudo mkdir -p /tmp/texlive
+          sudo cp -r /usr/share/texlive /tmp/texlive/
+          sudo cp -r /etc/texmf /tmp/texlive/
+          sudo cp -r /var/lib/texmf /tmp/texlive/
+
+      - name: Set up TeX Live environment
+        run: |
+          # Create symlinks for cached installation
+          if [ -d "/tmp/texlive/texlive" ]; then
+            echo "Setting up cached TeX Live..."
+            sudo rm -rf /usr/share/texlive
+            sudo rm -rf /etc/texmf
+            sudo rm -rf /var/lib/texmf
+            
+            sudo mv /tmp/texlive/texlive /usr/share/
+            sudo mv /tmp/texlive/texmf /etc/
+            sudo mv /tmp/texlive/texmf /var/lib/
+          fi
+          
+          # Add TeX binaries to PATH
+          echo "/usr/local/texlive/2023/bin/x86_64-linux" >> $GITHUB_PATH
+          echo "/usr/local/texlive/2023/bin/x86_64-linux" >> $GITHUB_PATH
+
+      # -----------------------------------------------------------------
+      # STEP 2: CONVERT LATEX PROJECTS
+      # -----------------------------------------------------------------
       - name: Convert projects and build index
         run: |
           echo "Starting conversion process..."
           mkdir -p _site/_converted
           PROJECT_CARDS_HTML=""
           
-          # Loop through all directories
           for dir in */; do
-            # Remove trailing slash
+            # Clean up trailing slash from directory name
             dir_name=${dir%/}
             
-            # Skip special directories
+            # Skip workflow and hidden directories
             if [[ "$dir_name" == ".github" || "$dir_name" == "_site" ]]; then
-              echo "Skipping directory: $dir_name"
+              echo "Skipping utility directory: $dir_name"
               continue
             fi
             
-            # Find main .tex file
+            # Find the first .tex file in the directory (non-recursive)
             MAIN_TEX=$(find "$dir_name" -maxdepth 1 -type f -name "*.tex" | head -n 1)
             
             if [[ -n "$MAIN_TEX" ]]; then
               PROJECT_NAME=$(basename "$dir_name")
-              echo "✅ Converting LaTeX project: $PROJECT_NAME"
+              echo "✅ Found LaTeX project: $PROJECT_NAME in directory $dir_name"
+              echo "   - Main file: $MAIN_TEX"
               
-              # Run make4ht conversion
+              # Run make4ht to convert the .tex file to a website
               make4ht -l -u -c ./build.cfg -d "_site/_converted/${PROJECT_NAME}" "$MAIN_TEX" "mathjax,svg"
               
-              # Generate project card HTML
+              # Generate the HTML vCard for this project and append it to our list
               CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">
                 <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>
                 <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>
               </a>"
               PROJECT_CARDS_HTML="$PROJECT_CARDS_HTML $CARD"
+              
             else
-              echo "⚠️ No .tex file found in: $dir_name"
+              echo "⚠️ No .tex file found in directory: $dir_name. Skipping."
             fi
           done
           
-          # Generate final index.html
+          echo "All projects processed. Generating final index.html..."
+          
+          # Create the final index.html from the template
           sed "s|<!-- PROJECTS_LIST -->|${PROJECT_CARDS_HTML}|g" index.template.html > _site/index.html
-          echo "✅ Site built successfully in '_site' directory"
+          
+          echo "✅ Site built successfully in the '_site' directory."
 
+      # -----------------------------------------------------------------
+      # STEP 3: DEPLOY TO GITHUB PAGES
+      # -----------------------------------------------------------------
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
