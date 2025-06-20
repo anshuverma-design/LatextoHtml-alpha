@@ -1,4 +1,3 @@
-# .github/workflows/build-and-deploy.yml
 name: Build LaTeX Projects and Deploy to GitHub Pages
 
 on:
