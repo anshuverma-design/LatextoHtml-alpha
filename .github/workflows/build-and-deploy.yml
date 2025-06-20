@@ -18,69 +18,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cache TeX Live installation
-        id: cache-texlive
-        uses: actions/cache@v4
+      # Install TeX Live using specialized action with built-in caching
+      - name: Install TeX Live
+        uses: xu-cheng/texlive-action@v1
         with:
-          path: /tmp/texlive
-          key: ${{ runner.os }}-texlive-full-tug-v1
+          packages: texlive-full tex4ht
+          cache: true
 
-      - name: Install TeX Live manually (if not cached)
-        if: steps.cache-texlive.outputs.cache-hit != 'true'
-        run: |
-          echo "Installing TeX Live from TUG (manual method)..."
-          mkdir -p /tmp/install-texlive
-          cd /tmp/install-texlive
-          curl -sL http://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz | tar xz --strip-components=1
-          ./install-tl -profile /dev/stdin <<EOF
-          selected_scheme scheme-full
-          TEXDIR /tmp/texlive
-          TEXMFCONFIG ~/.texlive-config
-          TEXMFVAR ~/.texlive-var
-          option_doc 0
-          option_src 0
-          EOF
-
-      - name: Add TeX Live to PATH
-        run: |
-          echo "/tmp/texlive/bin/x86_64-linux" >> $GITHUB_PATH
-
-      - name: Verify TeX Live and make4ht installation
-        run: |
-          which tex
-          which make4ht
-          make4ht --version
-
-      - name: Convert LaTeX projects and build index.html
+      - name: Convert projects and build index
         run: |
           echo "Starting conversion process..."
           mkdir -p _site/_converted
           PROJECT_CARDS_HTML=""
-
+          
           for dir in */; do
             dir_name=${dir%/}
             if [[ "$dir_name" == ".github" || "$dir_name" == "_site" ]]; then
+              echo "Skipping utility directory: $dir_name"
               continue
             fi
-
+            
             MAIN_TEX=$(find "$dir_name" -maxdepth 1 -type f -name "*.tex" | head -n 1)
-
+            
             if [[ -n "$MAIN_TEX" ]]; then
               PROJECT_NAME=$(basename "$dir_name")
-              echo "Found LaTeX project: $PROJECT_NAME"
-
+              echo "✅ Found LaTeX project: $PROJECT_NAME"
+              
+              # Add texlive binaries to PATH for current step
+              export PATH="/usr/local/texlive/2023/bin/x86_64-linux:$PATH"
+              
               make4ht -l -u -c ./build.cfg -d "_site/_converted/${PROJECT_NAME}" "$MAIN_TEX" "mathjax,svg"
-
-              CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">\n  <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>\n  <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>\n</a>"
-
+              
+              CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">
+                <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>
+                <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>
+              </a>"
               PROJECT_CARDS_HTML="$PROJECT_CARDS_HTML $CARD"
             else
-              echo "No .tex file found in $dir_name. Skipping."
+              echo "⚠️ No .tex file in: $dir_name"
             fi
           done
-
-          echo "Generating final index.html..."
+          
           sed "s|<!-- PROJECTS_LIST -->|${PROJECT_CARDS_HTML}|g" index.template.html > _site/index.html
+          echo "✅ Site built successfully"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
