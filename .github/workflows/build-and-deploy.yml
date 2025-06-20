@@ -19,53 +19,43 @@ jobs:
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------
-      # STEP 1: INSTALL TEX LIVE WITH PROPER CACHING
+      # STEP 1: SETUP TEX LIVE WITH RELIABLE CACHING
       # -----------------------------------------------------------------
       - name: Cache TeX Live installation
         id: cache-texlive
         uses: actions/cache@v4
         with:
-          path: /tmp/texlive
+          path: /tmp/texlive-cache
           key: ${{ runner.os }}-texlive-full-2024-06-21
           restore-keys: |
             ${{ runner.os }}-texlive-full-
 
-      - name: Install TeX Live (if not cached)
-        if: steps.cache-texlive.outputs.cache-hit != 'true'
+      - name: Install TeX Live
         run: |
-          echo "Installing TeX Live..."
-          sudo apt-get update
-          sudo apt-get install -y \
-            texlive-full \
-            texlive-latex-extra \
-            texlive-fonts-extra \
-            texlive-luatex \
-            texlive-xetex \
-            tex4ht
-          
-          echo "Caching TeX Live installation..."
-          sudo mkdir -p /tmp/texlive
-          sudo cp -r /usr/share/texlive /tmp/texlive/
-          sudo cp -r /etc/texmf /tmp/texlive/
-          sudo cp -r /var/lib/texmf /tmp/texlive/
-
-      - name: Set up TeX Live environment
-        run: |
-          # Create symlinks for cached installation
-          if [ -d "/tmp/texlive/texlive" ]; then
-            echo "Setting up cached TeX Live..."
-            sudo rm -rf /usr/share/texlive
-            sudo rm -rf /etc/texmf
-            sudo rm -rf /var/lib/texmf
+          # Check if cache exists
+          if [[ -d "/tmp/texlive-cache" ]]; then
+            echo "Restoring TeX Live from cache..."
+            sudo rsync -a /tmp/texlive-cache/ /usr/
+          else
+            echo "Installing TeX Live..."
+            sudo apt-get update
+            sudo apt-get install -y \
+              texlive-full \
+              texlive-latex-extra \
+              texlive-fonts-extra \
+              texlive-luatex \
+              texlive-xetex \
+              tex4ht
             
-            sudo mv /tmp/texlive/texlive /usr/share/
-            sudo mv /tmp/texlive/texmf /etc/
-            sudo mv /tmp/texlive/texmf /var/lib/
+            echo "Caching TeX Live installation..."
+            mkdir -p /tmp/texlive-cache
+            sudo rsync -a /usr/share/texlive/ /tmp/texlive-cache/usr/share/texlive
+            sudo rsync -a /etc/texmf/ /tmp/texlive-cache/etc/texmf
+            sudo rsync -a /var/lib/texmf/ /tmp/texlive-cache/var/lib/texmf
+            sudo rsync -a /usr/bin/ /tmp/texlive-cache/usr/bin
           fi
           
-          # Add TeX binaries to PATH
-          echo "/usr/local/texlive/2023/bin/x86_64-linux" >> $GITHUB_PATH
-          echo "/usr/local/texlive/2023/bin/x86_64-linux" >> $GITHUB_PATH
+          echo "TeX Live setup complete"
 
       # -----------------------------------------------------------------
       # STEP 2: CONVERT LATEX PROJECTS
@@ -76,45 +66,41 @@ jobs:
           mkdir -p _site/_converted
           PROJECT_CARDS_HTML=""
           
+          # Loop through all directories
           for dir in */; do
-            # Clean up trailing slash from directory name
+            # Remove trailing slash
             dir_name=${dir%/}
             
-            # Skip workflow and hidden directories
+            # Skip special directories
             if [[ "$dir_name" == ".github" || "$dir_name" == "_site" ]]; then
-              echo "Skipping utility directory: $dir_name"
+              echo "Skipping directory: $dir_name"
               continue
             fi
             
-            # Find the first .tex file in the directory (non-recursive)
+            # Find main .tex file
             MAIN_TEX=$(find "$dir_name" -maxdepth 1 -type f -name "*.tex" | head -n 1)
             
             if [[ -n "$MAIN_TEX" ]]; then
               PROJECT_NAME=$(basename "$dir_name")
-              echo "✅ Found LaTeX project: $PROJECT_NAME in directory $dir_name"
-              echo "   - Main file: $MAIN_TEX"
+              echo "✅ Converting LaTeX project: $PROJECT_NAME"
               
-              # Run make4ht to convert the .tex file to a website
+              # Run make4ht conversion
               make4ht -l -u -c ./build.cfg -d "_site/_converted/${PROJECT_NAME}" "$MAIN_TEX" "mathjax,svg"
               
-              # Generate the HTML vCard for this project and append it to our list
+              # Generate project card HTML
               CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">
                 <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>
                 <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>
               </a>"
               PROJECT_CARDS_HTML="$PROJECT_CARDS_HTML $CARD"
-              
             else
-              echo "⚠️ No .tex file found in directory: $dir_name. Skipping."
+              echo "⚠️ No .tex file found in: $dir_name"
             fi
           done
           
-          echo "All projects processed. Generating final index.html..."
-          
-          # Create the final index.html from the template
+          # Generate final index.html
           sed "s|<!-- PROJECTS_LIST -->|${PROJECT_CARDS_HTML}|g" index.template.html > _site/index.html
-          
-          echo "✅ Site built successfully in the '_site' directory."
+          echo "✅ Site built successfully in '_site' directory"
 
       # -----------------------------------------------------------------
       # STEP 3: DEPLOY TO GITHUB PAGES
