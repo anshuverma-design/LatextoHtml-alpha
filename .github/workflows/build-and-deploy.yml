@@ -18,12 +18,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Install TeX Live using specialized action with built-in caching
+      # Use the maintained TeX Live action with built-in caching
       - name: Install TeX Live
-        uses: xu-cheng/texlive-action@v1
+        uses: tl-action/texlive-action@v2
         with:
-          packages: texlive-full tex4ht
+          packages: texlive-full tex4ht  # tex4ht contains make4ht
           cache: true
+          cache-key: texlive-full-v1  # Custom cache key for our setup
 
       - name: Convert projects and build index
         run: |
@@ -31,36 +32,41 @@ jobs:
           mkdir -p _site/_converted
           PROJECT_CARDS_HTML=""
           
+          # Loop through all directories
           for dir in */; do
+            # Remove trailing slash
             dir_name=${dir%/}
+            
+            # Skip special directories
             if [[ "$dir_name" == ".github" || "$dir_name" == "_site" ]]; then
-              echo "Skipping utility directory: $dir_name"
+              echo "Skipping directory: $dir_name"
               continue
             fi
             
+            # Find main .tex file
             MAIN_TEX=$(find "$dir_name" -maxdepth 1 -type f -name "*.tex" | head -n 1)
             
             if [[ -n "$MAIN_TEX" ]]; then
               PROJECT_NAME=$(basename "$dir_name")
-              echo "✅ Found LaTeX project: $PROJECT_NAME"
+              echo "✅ Converting LaTeX project: $PROJECT_NAME"
               
-              # Add texlive binaries to PATH for current step
-              export PATH="/usr/local/texlive/2023/bin/x86_64-linux:$PATH"
-              
+              # Run make4ht conversion
               make4ht -l -u -c ./build.cfg -d "_site/_converted/${PROJECT_NAME}" "$MAIN_TEX" "mathjax,svg"
               
+              # Generate project card HTML
               CARD="<a href=\"./_converted/${PROJECT_NAME}/\" class=\"block p-6 bg-white border border-gray-200 rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 ease-in-out\">
                 <h3 class=\"mb-2 text-2xl font-bold tracking-tight text-gray-800\">${PROJECT_NAME}</h3>
                 <p class=\"font-normal text-gray-500\">Click to view the converted HTML document.</p>
               </a>"
               PROJECT_CARDS_HTML="$PROJECT_CARDS_HTML $CARD"
             else
-              echo "⚠️ No .tex file in: $dir_name"
+              echo "⚠️ No .tex file found in: $dir_name"
             fi
           done
           
+          # Generate final index.html
           sed "s|<!-- PROJECTS_LIST -->|${PROJECT_CARDS_HTML}|g" index.template.html > _site/index.html
-          echo "✅ Site built successfully"
+          echo "✅ Site built successfully in '_site' directory"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
